@@ -1,0 +1,29 @@
+(ns grokb.views.common
+  (:use noir.core
+        hiccup.core
+        hiccup.page-helpers))
+
+(defpartial layout [& content]
+            (html5
+              [:head
+               [:title "grokb"]
+
+               (include-css "/css/reset.css")
+
+
+	       [:script {:type "text/javascript"
+			 :src  "/js/paper.js"}]
+
+	       [:script {:type "text/paperscript"
+			 :canvas "canvas0"
+			 :src "/js/sperm.js"}]
+
+	       [:script {:type "text/paperscript"
+			 :canvas "canvas1"
+			 :src "/js/sperm.js"}]]
+              [:body
+               [:div#wrapper
+                content]]))
+
+
+

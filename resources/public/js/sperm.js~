@@ -1,0 +1,579 @@
+Stem.minAlive = isChrome ? 3 : 2;
+Stem.maxAlive = isChrome ? 7 : 3;
+Stem.minLeafDist = isChrome ? 50 : 30;
+
+var viewBounds = view.bounds,
+    followers = [
+      new Follower({ agility:.5, speed:.5 }),
+      new Follower({ agility:.75, speed:.25 }),
+      new Follower({ agility:.35, speed:.75 })
+    ],
+    stems = [],
+    
+    mousePos = null,
+    isMouseDown = false,
+
+    stemsLayer = new Layer(),
+    leavesLayer = new Layer(),
+    flowersLayer = new Layer(),
+
+    stemsRaster = new Raster( CanvasProvider.getCanvas( viewBounds.size )),
+    leavesRaster = new Raster( CanvasProvider.getCanvas( viewBounds.size )),
+    flowersRaster = new Raster( CanvasProvider.getCanvas( viewBounds.size ));
+
+stemsLayer.addChild(stemsRaster);
+leavesLayer.addChild(leavesRaster);
+flowersLayer.addChild(flowersRaster);
+stemsRaster.setPosition(viewBounds.center);
+leavesRaster.setPosition(viewBounds.center);
+flowersRaster.setPosition(viewBounds.center);
+
+for(var i = 0; i < followers.length; i++) {
+  var stem = new Stem(followers[i], true);
+  stems.push(stem);
+}
+
+function onMouseMove(event) { mousePos = event.point; }
+function onMouseDown(event) { isMouseDown = true; }
+function onMouseUp(event) { isMouseDown = false; }
+
+var lastTime = Date.now();
+function onFrame(event) {
+  var now = Date.now(),
+      ellapsed = now - lastTime,
+      revs = Math.min(4, ellapsed / 30);
+  
+  if(!mousePos) { return; }
+  
+  for(var r = 0; r < revs; r++) {
+    for(var i = 0, len = stems.length; i < len; i++) {
+      stems[i].grow(mousePos);
+    }
+  }
+  
+  lastTime = now;
+}
+
+function onResize(event) {
+  clearAll();
+}
+
+function clearAll() {
+  stemsRaster.remove();
+  leavesRaster.remove();
+  flowersRaster.remove();
+  
+  viewBounds = view.bounds;
+  
+  stemsRaster = new Raster( CanvasProvider.getCanvas( viewBounds.size ));
+  leavesRaster = new Raster( CanvasProvider.getCanvas( viewBounds.size ));
+  flowersRaster = new Raster( CanvasProvider.getCanvas( viewBounds.size ));
+  stemsLayer.addChild(stemsRaster);
+  leavesLayer.addChild(leavesRaster);
+  flowersLayer.addChild(flowersRaster);
+  stemsRaster.setPosition(viewBounds.center);
+  leavesRaster.setPosition(viewBounds.center);
+  flowersRaster.setPosition(viewBounds.center);
+}
+window.vinesClearAll = clearAll;
+
+// -------------- Stem Class -------------- //
+function Stem(leader, isRoot) {
+  if(Stem.numAlive == null) { Stem.numAlive = 0; }
+  Stem.numAlive++;
+  var shadow = new Path(),
+      main = new Path(),
+      highlight = new Path(),
+      shadowOffset = new Point(-1,2),
+      highlightOffset = new Point(0,-0.5),
+      isDying = false,
+      isDead = this.isDead = false,
+
+      group = new Group([shadow, main, highlight, Path.Rectangle(viewBounds)]);
+
+  stemsLayer.addChild(group);
+
+  main.strokeColor = '#5a6728';
+  main.strokeWidth = 2;
+
+  shadow.strokeColor = '000';
+  shadow.strokeWidth = 4;
+  shadow.opacity = .2;
+
+  highlight.strokeColor = 'fff';
+  highlight.strokeWidth = 1;
+  highlight.opacity = 0.3;
+  highlight.remove();
+
+  this.branches = [];
+  var leaves = [],
+      flowers = [],
+      totalDist = 0,
+      splitDist = 0,
+      leafDist = 0,
+      lastPos = null,
+      
+      _this = this;
+
+  if(leader.position) {
+    main.add(leader.position);
+    shadow.add(leader.position + shadowOffset);
+    highlight.add(leader.position + highlightOffset);
+  }
+
+  this.grow = function(mousePos) {
+    if(this.isDead) { 
+      if(isRoot) { 
+        incrementBranches(mousePos);
+      }
+      return;
+    }
+
+    incrementBranches(mousePos);
+
+    if(isDying) {
+      incrementLeaves();
+      if(leaves.length == 0 && flowers.length == 0) {
+        this.isDead = true;
+      }
+      return;
+    }
+
+    if(isMouseDown) {
+      leader.follow(mousePos);
+    }
+    else {
+      leader.transportTo(mousePos);
+      totalDist = splitDist = leafDist = 0;
+      lastPos = null;
+    }
+    if(leader.hasMoved) {
+      var vector = lastPos ? (leader.position - lastPos) : null;
+
+      main.add(leader.position);
+      shadow.add(leader.position + shadowOffset);
+      highlight.add(leader.position + highlightOffset);
+
+      if(vector) {
+        leafDist += Math.floor(vector.length);
+        totalDist += Math.floor(vector.length);
+      }
+
+      if(totalDist > 100) {
+        if(Math.random() < .02 && Stem.numAlive < Stem.maxAlive) {
+          splitDist = totalDist;
+          split();
+        }
+        else if(totalDist - splitDist > 50 && Stem.numAlive > Stem.minAlive && Math.random() < .03) {
+          die();
+        }
+      }
+
+      if(leafDist > 80 || (leafDist > Stem.minLeafDist && Math.random() < .15) || (isDying)) {// && Math.random() > .5)) {
+        var growFlower = isDying,// || Math.random() < .1
+            container;
+        leaves.push({
+          kind: growFlower ? Flower : Leaf,
+          symbol: growFlower ? Flower.random() : Leaf.random(),
+          item: null,
+          container: container = new Group(),
+          pos: leader.position + (growFlower ? 0 : vector.rotate(90).normalize(18 * Math.random() - 9)),
+          scale: 1,
+          rotation: 100 * Math.random() - 50,
+          age: growFlower ? 0 : -5
+        });
+        (growFlower ? flowersLayer : leavesLayer).addChild(container);
+        leafDist = 0;
+      }
+      lastPos = leader.position.clone();
+    }
+
+    incrementLeaves();
+
+    if(main.length > 200 || isDying || (!isMouseDown && main.segments.length > 0)) {
+      var rendered = group.rasterize(null, viewBounds);
+      stemsRaster.drawImage(rendered.image, rendered.bounds.topLeft*2);
+      rendered.remove();
+
+      main.removeSegments();
+      shadow.removeSegments();
+      highlight.removeSegments();
+
+      if(leader.hasMoved && !isDying) {
+        main.add(leader.position);
+        shadow.add(leader.position + shadowOffset);
+        highlight.add(leader.position + highlightOffset);
+      }
+    }
+  };
+
+  function split() {
+    var newStem = new Stem(leader.split());
+    _this.branches.push(newStem);
+  }
+
+  function die() {
+    isDying = true;
+    Stem.numAlive--;
+  }
+
+  function incrementBranches(mousePos) {
+    var adopted = [],
+        i = 0;
+        
+    while(i < _this.branches.length) {
+      _this.branches[i].grow(mousePos);
+      if(_this.branches[i].isDead) {
+        adopted = adopted.concat(_this.branches[i].branches);
+        _this.branches.splice(i, 1);
+      }
+      else {
+        i++;
+      }
+    }
+    
+    if(adopted.length > 0) {
+      _this.branches = _this.branches.concat(adopted);
+    }
+  }
+
+  function incrementLeaves() {
+    var maxAge = 30;
+    var i = 0;
+    while(i < leaves.length) {
+      var leaf = leaves[i];
+      leaf.age++;
+
+      if(leaf.age < 1) { return; }
+      
+      if(leaf.age <= maxAge) {
+        if(leaf.item) {
+          leaf.item.remove();
+        }
+        var matrix = new Matrix();
+        matrix.translate(leaf.pos);
+        matrix.scale(leaf.scale * Math.pow(leaf.age / maxAge, .4));
+        matrix.rotate(leaf.rotation * Math.pow(leaf.age / maxAge, .4));
+        leaf.item = new PlacedSymbol( leaf.symbol, matrix );
+        leaf.container.addChild(leaf.item);
+        i++;
+      }
+      else {
+        var img = leaf.item.rasterize(null, viewBounds);
+        (leaf.kind == Flower ? flowersRaster : leavesRaster).drawImage(img.image);
+        img.remove();
+        leaf.item.remove();
+        leaf.container.remove();
+        leaves.splice(i,1);
+      }
+    }
+  }
+}
+
+// -------------- Leaf Class -------------- //
+
+function Leaf(numSides, numVeins) {
+  var outline = new Path(),
+      group = new Group([outline]),
+      numPts = 72,
+      radius = 17,
+      displacement = new Point(30, 0),
+      phaseShift = Math.random(360),
+
+      TO_RADS = Math.PI / 180;
+
+  outline.fillColor = new HSBColor(57 + 25 * Math.random(), .8 + .2 * Math.random(), .55 + .2 * Math.random());
+  outline.opacity = .9;
+  outline.closed = true;
+
+  // Draw the outline
+  for(var i = 0; i < numPts; i++) {
+    var angle = 360 * i/numPts;
+    displacement.length = radius * (1 + .05 * Math.sin(numSides * angle * TO_RADS) + .05 * Math.sin((3 * angle + phaseShift) * TO_RADS) - .1 * (Math.random() - .5));
+    displacement.angle = angle + 360*(Math.random() - .5)/numPts;
+    outline.add(displacement);
+  }
+  outline.rotate(Math.random() * 180 / numSides);
+
+  // Create the shadow
+  var shadow = outline.clone();
+  shadow.fillColor = '#000';
+  shadow.opacity = .3;
+  shadow.scale(1.1);
+  shadow.translate( new Point(1,1) );
+  var shadowMap = shadow.rasterize();
+  shadow.remove();
+  group.insertChild(0, shadowMap);
+
+  // Draw the veins
+  for(i = 0; i < numVeins; i++) {
+    group.addChild( createVein(360 * i / numVeins) );
+  }
+
+  function createVein(rotation) {
+    var main = new Path(),
+        vein = new Group([main]),
+        numPts = 10,
+        length = 14,
+        center = new Point(0,0);
+
+    main.strokeColor = '#000';
+    main.opacity = .2;
+    main.strokeWidth = 1.2;
+    main.moveTo(new Point(-1,0));
+    for(var i = 1; i < numPts; i++) {
+      var fade = (1 - i/numPts),
+          pos = new Point( length * Math.pow((i + Math.random())/numPts, .8),
+                length * .2 * fade * (Math.random() - .5) );
+      main.lineTo(pos);
+
+      if(i % 3 == 0) {
+        for(var m = -1; m <= 1; m += 2) {
+          var mini = new Path(),
+              angle = -40 * m * Math.random() + 10;
+          vein.addChild(mini);
+          mini.strokeColor = '#444';
+          mini.opacity = fade * .4 + .1;
+          mini.moveTo(pos);
+          mini.lineBy(new Point(0, .5 * Math.pow((1-fade), .4) * length * m).rotate( angle ));
+          mini.lineBy(new Point(0, .16 * Math.pow((1-fade), .4) * length * m).rotate( angle * 2.2 ));
+        }
+      }
+    }
+    vein.rotate(rotation, center);
+
+    return vein;
+  }
+
+  group.scale(.8 + .3 * Math.random());
+  this.symbol = new Symbol(group.rasterize());
+  group.remove();
+}
+
+Leaf.symbols = [];
+for(var i = 0; i < 24; i++) {
+  Leaf.symbols.push(new Leaf(
+    5 + Math.floor(Math.random() * 3),
+    Math.random() < .5 ? 6 : 7).symbol
+  );
+}
+
+Leaf.random = function() {
+  return Leaf.symbols[ Math.floor(Math.random() * Leaf.symbols.length) ];
+};
+
+// -------------- Flower Class -------------- //
+
+function Flower(size) {
+  var group = new Group(),
+      center = new Point(),
+      shadow = Path.Circle(center, size*1.1),
+
+      petalYellow = new RGBColor(
+        .8 + .2 * Math.random(),
+        .4 + .4 * Math.random(),
+        0
+      ),
+      petalRed = new RGBColor(
+        .8 + .2 * Math.random(),
+        .2 * Math.random(),
+        0.1
+      ),
+      pink = new RGBColor(.7 + .1 * Math.random(), .1 + .1 * Math.random(), .03);
+
+  shadow.fillColor = new GradientColor(
+    new Gradient(
+      [
+        new GradientStop(new RGBColor(0,0,0,.4), .5),
+        new GradientStop(new RGBColor(0,0,0,0), 1)
+      ],
+      "radial"
+    ),
+    new Point(0,0), new Point(0,size*1.1)
+  );
+
+  for(var i = 0; i < 6; i++) {
+    var petal = createPetal(
+      size * (.9 + .1 * Math.random()),
+      (i % 2 == 0 ? .4 : .3) * size,
+      (i % 2 == 0 ? 1.6 : 1.2) * size
+    );
+    petal.setPosition(0, .66 * size);
+    petal.rotate(360 * i / 6, center);
+    group.insertChild(i % 2 == 0 ? 1 : group.children.length, petal);
+
+    var pshadow = petal.children[0].clone();
+    pshadow.fillColor = '#000';
+    pshadow.opacity = .3;
+    pshadow.translate(0, 3);
+    pshadow.insertBelow(petal);
+  }
+
+  var vortexRadius = size * .22,
+      vortex = Path.Circle(new Point(0,0), vortexRadius),
+      alphaPink = pink.clone();
+
+  alphaPink.alpha = 0;
+  vortex.fillColor = new GradientColor(
+    new Gradient(
+      [
+        new GradientStop('white', 0),
+        new GradientStop(pink, .35),
+        new GradientStop(pink, .7),
+        new GradientStop(alphaPink, 1)
+      ],
+      "radial"
+    ),
+    new Point(0,0), new Point(0,vortexRadius)
+  );
+  group.addChild(vortex);
+
+  group.insertChild(0, shadow);
+
+  group.scale(.9 + .4 * Math.pow(Math.random(), 2));
+  this.symbol = new Symbol(group.rasterize());
+  group.remove();
+
+  function createPetal(len, w, flare) {
+    var path = new Path(),
+        base1 = new Point(w/2,0),
+        base2 = new Point(-w/2,0),
+        tip = new Point(0, len),
+        flare1 = new Point(flare * (.85 + .3 * Math.random()) / 2, .6 * len),
+        flare2 = new Point(-flare * (.85 + .3 * Math.random()) / 2, .6 * len),
+        tipTan1 = new Point(len * (Math.random() * .3 - .05), .8 * len),
+        tipTan2 = new Point(-len * (Math.random() * .3 - .05), .8 * len),
+
+        gradient = new Gradient([
+          new GradientStop(new Color('white'), 0),
+          new GradientStop(
+            petalYellow,
+            .4 + .2 * (Math.random() - .5)
+          ),
+          new GradientStop(
+            petalRed, 1
+          )
+        ], "radial"),
+        gradientColor = new GradientColor(gradient, new Point(0,.4*len), tip + new Point(0,.1 * len), new Point(0,.2 * len));
+
+    path.closed = true;
+    path.fillColor = gradientColor;
+    // path.opacity = .8;
+    path.add(base1);
+    path.cubicCurveTo(
+      flare1,
+      tipTan1,
+      tip
+    );
+    path.cubicCurveTo(
+      tipTan2,
+      flare2,
+      base2
+    );
+
+    var vein = new Path(),
+        veinW = len * .03,
+        veinLen = len * .5,
+        drift = len * 0.07 * (Math.random() - .5);
+
+    vein.fillColor = pink;
+    vein.add(new Point(veinW / 2,0));
+    vein.curveTo(
+      new Point(veinW/2 + drift, veinLen / 2),
+      new Point(0, veinLen)
+    );
+    vein.curveTo(
+      new Point(-veinW/2 + drift, veinLen / 2),
+      new Point(-veinW / 2, 0)
+    );
+
+    return new Group([path, vein]);
+  }
+}
+
+Flower.symbols = [];
+for(var i = 0; i < 24; i++) {
+  Flower.symbols.push(new Flower(24).symbol);
+}
+
+Flower.random = function() {
+  return Flower.symbols[ Math.floor(Math.random() * Flower.symbols.length) ];
+};
+
+
+// -------------- Follower Class -------------- //
+
+var circle = Path.Circle(null, 10);
+circle.fillColor = 'black';
+Follower.symbol = new Symbol( circle );
+function Follower(props, display) {
+  this.position = props.initPos;
+  var item = display ? new PlacedSymbol(Follower.symbol) : null,
+      closestDistance = 30,
+      heading = props.initHeading,
+      speed = props.initSpeed,
+      spinSpeed = 0;
+      
+  this.transportTo = function (target) {
+    this.position = target;
+    this.hasMoved = false;
+    heading = null;
+    speed = null;
+  };
+
+  this.follow = function (target) {
+    this.hasMoved = true;
+    if(!this.position) {
+      this.position = target;
+    }
+    else {
+      var diff = target - this.position;
+
+      if(diff.length < closestDistance) {
+        this.hasMoved = false;
+        return;
+      }
+
+      if(heading == null) {
+        heading = diff.angle;
+      }
+
+      var angleDiff = (diff.angle - heading + 360) % 360,
+          dir = 1;
+
+      if(angleDiff > 180) {
+        angleDiff = (720 - angleDiff) % 360;
+        dir = -1;
+      }
+
+      spinSpeed = dir * angleDiff * (.2 * props.agility);
+      heading += spinSpeed;
+      speed = props.speed * 20 * Math.pow( Math.min(1, Math.max(0, (diff.length - closestDistance/2) / 300)), .5);
+      var delta = new Point(speed, 0).rotate(heading);
+      this.position += delta;
+    }
+    if(item) { item.position = this.position; }
+  };
+
+  this.split = function() {
+    var heading1 = heading - (15 + 30 * Math.random()),
+        heading2 = heading + (15 + 30 * Math.random()),
+        newFollower = new Follower(
+          {
+            agility:.25 + Math.random()*.5,
+            speed:.25 + Math.random()*.5,
+            initPos: this.position,
+            initSpeed: 0,
+            initHeading: heading1
+          }
+        );
+    newFollower.hasMoved = true;
+
+    heading = heading2;
+    return newFollower;
+  };
+}
+
+if(!Date.now) {
+  Date.now = function() { return Number(new Date()); };
+}
