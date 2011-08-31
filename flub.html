@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+<!-- Load the Paper.js library -->
+<script type="text/javascript" src="resources/public/js/paper.js"></script>
+<!-- Define inlined JavaScript -->
+<script type="text/javascript">
+    // Only executed our code once the DOM is ready.
+    window.onload = function() {
+
+        var canvas = document.getElementById('myCanvas');
+        paper.setup(canvas);
+
+    var path = new paper.Path();
+    path.strokeColor = 'red';
+    var start = new paper.Point(100, 100);
+    path.moveTo(start);
+    path.lineTo(start.add([ 200, -50 ]));
+
+
+
+        paper.view.onFrame = function(event){
+        path.rotate(event.count);
+        //   paper.view.draw();
+    }
+
+    }
+</script>
+</head>
+<body>
+    <canvas id="myCanvas" resize></canvas>
+</body>
+</html>

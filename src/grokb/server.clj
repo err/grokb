@@ -17,7 +17,7 @@
     (server/start port {:mode :dev
 			:ns 'grokb})))
 
-
+(defn stop-server [s] (server/stop s))
 
 
 
